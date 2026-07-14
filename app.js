@@ -107,19 +107,31 @@ const btnLoadTemplate = document.getElementById('btn-load-template');
 const chkSaveTemplate = document.getElementById('chk-save-template');
 const txtTemplateName = document.getElementById('txt-template-name');
 
-// Firebase Variables
-let firebaseConfig = null;
+// Hardcoded Firebase Config for direct scaling
+const firebaseConfig = {
+  apiKey: "AIzaSyCjisXQ9V94dINr6EdWaTONRwwQ80fradQ",
+  authDomain: "auraattend.firebaseapp.com",
+  projectId: "auraattend",
+  storageBucket: "auraattend.firebasestorage.app",
+  messagingSenderId: "446998700910",
+  appId: "1:446998700910:web:ae5d9c72fc712a83e6177f",
+  measurementId: "G-R8EBVGBQY5"
+};
+
 let firestoreDb = null;
 let isSyncingFromCloud = false;
+let currentUser = null;
 
-// Firebase DOM Elements
-const btnCloud = document.getElementById('btn-cloud');
-const modalCloud = document.getElementById('modal-cloud');
-const btnCloseCloud = document.getElementById('btn-close-cloud');
-const btnSaveCloud = document.getElementById('btn-save-cloud');
-const btnDisconnectCloud = document.getElementById('btn-disconnect-cloud');
-const firebaseConfigInput = document.getElementById('firebase-config-input');
-const cloudStatusBadge = document.getElementById('cloud-status-badge');
+// Firebase Auth DOM Elements
+const authContainer = document.getElementById('auth-container');
+const authEmailInput = document.getElementById('auth-email');
+const authPasswordInput = document.getElementById('auth-password');
+const authErrorBox = document.getElementById('auth-error-box');
+const btnAuthSubmit = document.getElementById('btn-auth-submit');
+const btnTabSignin = document.getElementById('btn-tab-signin');
+const btnTabSignup = document.getElementById('btn-tab-signup');
+const btnSignOut = document.getElementById('btn-sign-out');
+const userEmailLabel = document.getElementById('user-email-label');
 
 // Backup actions
 const btnExport = document.getElementById('btn-export');
@@ -127,25 +139,17 @@ const fileImport = document.getElementById('import-file');
 
 // Initialization
 document.addEventListener('DOMContentLoaded', () => {
+  // Initialize Firebase connection immediately on load
+  initFirebaseConnection(firebaseConfig);
+  setupAuthObserver();
+  setupAuthEventListeners();
+  
   loadStateFromLocalStorage();
   setupEventListeners();
   setupProfileEventListeners();
-  setupFirebaseEventListeners();
   setupTimetableDragAndDrop();
   
   selectedDateString = getTodayDateString();
-  
-  // Initialize Firebase on startup if saved config exists
-  const savedFirebaseConfig = localStorage.getItem('aura_attend_firebase_config');
-  if (savedFirebaseConfig) {
-    try {
-      const configObj = JSON.parse(savedFirebaseConfig);
-      firebaseConfigInput.value = JSON.stringify(configObj, null, 2);
-      initFirebaseConnection(configObj);
-    } catch (e) {
-      console.error("Failed to auto-init Firebase:", e);
-    }
-  }
   
   renderApp();
   renderProfileDropdownList();
@@ -259,10 +263,12 @@ function saveStateToLocalStorage() {
   localStorage.setItem('aura_attend_profiles', JSON.stringify(profiles));
   localStorage.setItem('aura_attend_active_profile_id', activeProfileId);
 
-  // Sync to Firebase Cloud Firestore
-  if (firestoreDb && !isSyncingFromCloud && activeProfile) {
-    firestoreDb.collection("profiles").doc(activeProfileId).set(activeProfile)
-      .catch(e => console.error("Error updating profile in cloud:", e));
+  // Sync to Firebase Cloud Firestore under logged-in user document
+  if (firestoreDb && !isSyncingFromCloud && currentUser) {
+    firestoreDb.collection("users").doc(currentUser.uid).set({
+      profiles: profiles,
+      activeProfileId: activeProfileId
+    }).catch(e => console.error("Error updating user profiles in cloud:", e));
   }
 }
 
@@ -351,13 +357,6 @@ function renderProfileDropdownList() {
             state = profiles[0].data;
           }
           saveStateToLocalStorage();
-          
-          // Delete from Firestore
-          if (firestoreDb) {
-            firestoreDb.collection("profiles").doc(p.id).delete()
-              .catch(e => console.error("Error deleting from cloud:", e));
-          }
-          
           renderApp();
           renderProfileDropdownList();
         }
@@ -371,94 +370,14 @@ function renderProfileDropdownList() {
   lucide.createIcons();
 }
 
-function setupFirebaseEventListeners() {
-  btnCloud.addEventListener('click', () => openModal(modalCloud));
-  btnCloseCloud.addEventListener('click', () => closeModal(modalCloud));
-  
-  // Close cloud modal when clicking outside
-  window.addEventListener('click', (e) => {
-    if (e.target === modalCloud) closeModal(modalCloud);
-  });
-
-  btnSaveCloud.addEventListener('click', () => {
-    const rawVal = firebaseConfigInput.value.trim();
-    if (!rawVal) {
-      alert("Please paste your Firebase configuration JSON!");
-      return;
-    }
-    try {
-      const parsedConfig = JSON.parse(rawVal);
-      if (initFirebaseConnection(parsedConfig)) {
-        alert("Firebase Cloud Database successfully connected!");
-        closeModal(modalCloud);
-      }
-    } catch (e) {
-      alert("Invalid JSON format! Copy the config object from your Firebase console.");
-    }
-  });
-
-  btnDisconnectCloud.addEventListener('click', () => {
-    if (confirm("Disconnect from Firebase? All data will fall back to local storage only.")) {
-      firestoreDb = null;
-      firebaseConfig = null;
-      localStorage.removeItem('aura_attend_firebase_config');
-      
-      cloudStatusBadge.textContent = "Disconnected (Local Mode)";
-      cloudStatusBadge.style = "background:rgba(255,255,255,0.05); color:var(--text-muted);";
-      btnDisconnectCloud.classList.add('hidden');
-      btnCloud.style.color = "";
-      
-      alert("Disconnected! App returned to Local Storage Mode.");
-      closeModal(modalCloud);
-      renderApp();
-    }
-  });
-}
-
 function initFirebaseConnection(config) {
   try {
     if (!firebase.apps.length) {
       firebase.initializeApp(config);
     }
     firestoreDb = firebase.firestore();
-    firebaseConfig = config;
-    localStorage.setItem('aura_attend_firebase_config', JSON.stringify(config));
     
-    cloudStatusBadge.textContent = "Connected (Cloud Active)";
-    cloudStatusBadge.style = "background:rgba(16,185,129,0.1); color:var(--safe-color); border:1px solid rgba(16,185,129,0.25);";
-    btnDisconnectCloud.classList.remove('hidden');
-    btnCloud.style.color = "var(--safe-color)";
-    
-    // Sync Firestore profiles real-time
-    firestoreDb.collection("profiles").onSnapshot(snapshot => {
-      isSyncingFromCloud = true;
-      const cloudProfiles = [];
-      snapshot.forEach(doc => {
-        cloudProfiles.push(doc.data());
-      });
-      
-      if (cloudProfiles.length > 0) {
-        profiles = cloudProfiles;
-        
-        let activeProfile = profiles.find(p => p.id === activeProfileId);
-        if (!activeProfile) {
-          activeProfile = profiles[0];
-          activeProfileId = activeProfile.id;
-        }
-        state = activeProfile.data;
-        
-        localStorage.setItem('aura_attend_profiles', JSON.stringify(profiles));
-        localStorage.setItem('aura_attend_active_profile_id', activeProfileId);
-        
-        renderApp();
-        renderProfileDropdownList();
-      }
-      isSyncingFromCloud = false;
-    }, err => {
-      console.error("Profiles sync failed:", err);
-    });
-
-    // Sync Firestore shared templates real-time
+    // Sync Firestore shared templates real-time (global for everyone)
     firestoreDb.collection("shared_timetables").onSnapshot(snapshot => {
       const templates = [];
       snapshot.forEach(doc => {
@@ -478,6 +397,129 @@ function initFirebaseConnection(config) {
     return false;
   }
 }
+
+function initUserCloudSync(userId) {
+  if (!firestoreDb) return;
+  
+  // Real-time synchronization of the logged-in student's profiles database
+  firestoreDb.collection("users").doc(userId).onSnapshot(doc => {
+    isSyncingFromCloud = true;
+    if (doc.exists) {
+      const userData = doc.data();
+      profiles = userData.profiles || [];
+      activeProfileId = userData.activeProfileId || 'default';
+      
+      let activeProfile = profiles.find(p => p.id === activeProfileId);
+      if (!activeProfile && profiles.length > 0) {
+        activeProfile = profiles[0];
+        activeProfileId = activeProfile.id;
+      }
+      
+      if (activeProfile) {
+        state = activeProfile.data;
+      } else {
+        resetToDefaultState();
+        profiles = [{ id: 'default', name: 'Default Profile', data: state }];
+        activeProfileId = 'default';
+      }
+    } else {
+      // First time user signup: Create default layout document in cloud
+      resetToDefaultState();
+      profiles = [{ id: 'default', name: 'Default Profile', data: state }];
+      activeProfileId = 'default';
+      saveStateToLocalStorage();
+    }
+    
+    renderApp();
+    renderProfileDropdownList();
+    isSyncingFromCloud = false;
+  }, err => {
+    console.error("User database sync failed:", err);
+    isSyncingFromCloud = false;
+  });
+}
+
+function setupAuthObserver() {
+  firebase.auth().onAuthStateChanged(user => {
+    if (user) {
+      currentUser = user;
+      userEmailLabel.textContent = user.email;
+      authContainer.classList.add('hidden');
+      initUserCloudSync(user.uid);
+    } else {
+      currentUser = null;
+      profiles = [];
+      state = { subjects: [], logs: {}, schedule: {}, targetPercentage: 75 };
+      authContainer.classList.remove('hidden');
+      profileDropdownMenu.classList.add('hidden');
+    }
+  });
+}
+
+let authMode = 'signin';
+
+function setupAuthEventListeners() {
+  btnTabSignin.addEventListener('click', () => {
+    authMode = 'signin';
+    btnTabSignin.classList.add('active');
+    btnTabSignup.classList.remove('active');
+    btnAuthSubmit.textContent = 'Sign In';
+    authErrorBox.classList.add('hidden');
+  });
+
+  btnTabSignup.addEventListener('click', () => {
+    authMode = 'signup';
+    btnTabSignup.classList.add('active');
+    btnTabSignin.classList.remove('active');
+    btnAuthSubmit.textContent = 'Sign Up';
+    authErrorBox.classList.add('hidden');
+  });
+
+  btnSignOut.addEventListener('click', () => {
+    if (confirm("Are you sure you want to sign out?")) {
+      firebase.auth().signOut()
+        .then(() => alert("Signed out successfully!"))
+        .catch(err => alert("Sign out failed: " + err.message));
+    }
+  });
+}
+
+window.handleAuthSubmit = function(event) {
+  event.preventDefault();
+  const email = authEmailInput.value.trim();
+  const password = authPasswordInput.value;
+  
+  authErrorBox.classList.add('hidden');
+  btnAuthSubmit.disabled = true;
+  btnAuthSubmit.textContent = authMode === 'signin' ? 'Signing In...' : 'Signing Up...';
+
+  if (authMode === 'signin') {
+    firebase.auth().signInWithEmailAndPassword(email, password)
+      .then(() => {
+        btnAuthSubmit.disabled = false;
+        btnAuthSubmit.textContent = 'Sign In';
+      })
+      .catch(err => {
+        authErrorBox.textContent = err.message;
+        authErrorBox.classList.remove('hidden');
+        btnAuthSubmit.disabled = false;
+        btnAuthSubmit.textContent = 'Sign In';
+      });
+  } else {
+    firebase.auth().createUserWithEmailAndPassword(email, password)
+      .then(() => {
+        alert("Account successfully created!");
+        btnAuthSubmit.disabled = false;
+        btnAuthSubmit.textContent = 'Sign Up';
+      })
+      .catch(err => {
+        authErrorBox.textContent = err.message;
+        authErrorBox.classList.remove('hidden');
+        btnAuthSubmit.disabled = false;
+        btnAuthSubmit.textContent = 'Sign Up';
+      });
+  }
+};
 
 // Set up all interactive event listeners
 function setupEventListeners() {

@@ -39,6 +39,10 @@
             <i data-lucide="chevron-down" style="width:14px; height:14px; margin-left:0.25rem;"></i>
           </button>
           <div id="profile-dropdown-menu" class="profile-dropdown-menu hidden">
+            <div class="user-info-section" style="padding: 0.5rem 1rem 0.25rem 1rem; font-size: 0.75rem; color: var(--text-secondary); border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 0.5rem; margin-bottom: 0.25rem; font-family: var(--font-sans);">
+              <span style="font-weight: 600; color: #fff;">Logged in as:</span>
+              <div id="user-email-label" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 0.15rem; color: var(--accent-glow-end);">student@college.edu</div>
+            </div>
             <div class="profile-list" id="profile-list-items">
               <!-- Dynamic profile items -->
             </div>
@@ -46,6 +50,11 @@
             <button id="btn-add-profile" class="profile-dropdown-action">
               <i data-lucide="plus" style="width:14px; height:14px;"></i>
               <span>Create New Profile</span>
+            </button>
+            <div class="profile-dropdown-divider"></div>
+            <button id="btn-sign-out" class="profile-dropdown-action" style="color: var(--danger-color); font-weight: 600;">
+              <i data-lucide="log-out" style="width:14px; height:14px;"></i>
+              <span>Sign Out</span>
             </button>
           </div>
         </div>
@@ -78,9 +87,6 @@
         </button>
         <button id="btn-backup" class="btn btn-icon-only" title="Import/Export Backup">
           <i data-lucide="database"></i>
-        </button>
-        <button id="btn-cloud" class="btn btn-icon-only" title="Connect to Firebase Cloud">
-          <i data-lucide="cloud"></i>
         </button>
       </div>
     </header>
@@ -408,53 +414,52 @@
         </div>
       </div>
     </div>
-    <!-- Firebase Cloud Sync Modal -->
-    <div id="modal-cloud" class="modal-overlay">
-      <div class="modal-card glass-card large animate-in" style="max-width: 550px;">
-        <div class="modal-header">
-          <h3 style="display:flex; align-items:center; gap:0.5rem; font-family:var(--font-display);">
-            <i data-lucide="cloud" style="color:var(--accent-glow-end);"></i>
-            <span>Firebase Cloud Sync</span>
-          </h3>
-          <button id="btn-close-cloud" class="btn-icon-only modal-close"><i data-lucide="x"></i></button>
-        </div>
-        <div class="modal-body">
-          <p class="modal-desc">Connect AuraAttend to your Firebase Cloud Project to sync all student profiles, shared timetables, and attendance logs securely. This allows any student on any device to access the same templates and mark attendance!</p>
-          
-          <div class="field-group mt-4">
-            <label style="font-size:0.8rem; font-weight:600; color:#fff; display:block; margin-bottom:0.5rem;">Firebase Config JSON</label>
-            <textarea id="firebase-config-input" class="input-text" rows="8" placeholder='Paste your firebaseConfig object here:&#10;{&#10;  "apiKey": "...",&#10;  "authDomain": "...",&#10;  "projectId": "...",&#10;  "storageBucket": "...",&#10;  "messagingSenderId": "...",&#10;  "appId": "..."&#10;}' style="font-family: monospace; font-size: 0.8rem; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.08);"></textarea>
-          </div>
+  </div>
 
-          <div class="cloud-status-box mt-4" style="padding:1rem; border-radius: var(--radius-sm); border:1px solid rgba(255,255,255,0.06); background: rgba(0,0,0,0.15);">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
-              <span style="font-size:0.8rem; color:var(--text-secondary);">Connection Status:</span>
-              <span id="cloud-status-badge" class="quick-info-badge" style="background:rgba(255,255,255,0.05); color:var(--text-muted);">Disconnected (Local Mode)</span>
-            </div>
-            
-            <div class="instructions" style="font-size:0.75rem; color:var(--text-muted); line-height:1.4;">
-              <h4 style="font-weight:600; color:#fff; margin-bottom:0.25rem;">How to get Firebase Config:</h4>
-              <ol style="padding-left:1.25rem; display:flex; flex-direction:column; gap:0.25rem;">
-                <li>Go to <a href="https://console.firebase.google.com/" target="_blank" style="color:var(--accent-glow-end); text-decoration:underline;">Firebase Console</a>.</li>
-                <li>Create a new project named <strong>AuraAttend</strong>.</li>
-                <li>Under <strong>Project Shortcuts</strong>, click the <strong>Web icon (&lt;/&gt;)</strong> to add an app.</li>
-                <li>Copy the <code>firebaseConfig</code> JSON object and paste it above.</li>
-                <li>In your Firebase Project sidebar, go to <strong>Build &gt; Firestore Database</strong> and click <strong>Create database</strong> (choose "Start in test mode" so everyone can write/read templates).</li>
-              </ol>
-            </div>
-          </div>
+  <!-- Firebase App, Auth & Firestore SDKs (v10 compat) -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+
+  <!-- Login/Register Overlay Container -->
+  <div id="auth-container" class="auth-overlay hidden">
+    <div class="auth-card glass-card">
+      <div class="auth-logo">
+        <div class="brand-logo" style="background:var(--btn-primary-bg); width:48px; height:48px; border-radius:var(--radius-md); display:flex; align-items:center; justify-content:center; box-shadow: 0 0 20px rgba(99, 102, 241, 0.4); color:#fff; margin-bottom:0.25rem;">
+          <i data-lucide="calendar-check" style="width:24px; height:24px;"></i>
         </div>
-        <div class="modal-footer">
-          <button id="btn-disconnect-cloud" class="btn btn-secondary hidden">Disconnect Cloud</button>
-          <button id="btn-save-cloud" class="btn btn-primary">Connect & Sync</button>
-        </div>
+        <h2 style="font-family:var(--font-display); font-weight:700; font-size:1.6rem; color:#fff; letter-spacing:-0.02em;">AuraAttend</h2>
+        <p class="subtext" style="font-size:0.85rem; color:var(--text-secondary);">Student Attendance Portal</p>
       </div>
+
+      <!-- Auth Switch Tabs -->
+      <div class="auth-tabs">
+        <button id="btn-tab-signin" class="auth-tab-btn active">Sign In</button>
+        <button id="btn-tab-signup" class="auth-tab-btn">Sign Up</button>
+      </div>
+
+      <!-- Login / Signup Form -->
+      <form id="auth-form" class="auth-form" onsubmit="handleAuthSubmit(event); return false;">
+        <div class="field-group">
+          <label style="font-size:0.75rem; font-weight:600; color:var(--text-secondary); display:block; margin-bottom:0.4rem;">Email Address</label>
+          <input type="email" id="auth-email" class="input-text" placeholder="name@college.edu" required style="height:38px;">
+        </div>
+        <div class="field-group">
+          <label style="font-size:0.75rem; font-weight:600; color:var(--text-secondary); display:block; margin-bottom:0.4rem;">Password</label>
+          <input type="password" id="auth-password" class="input-text" placeholder="••••••••" required style="height:38px;" minlength="6">
+        </div>
+
+        <div id="auth-error-box" class="error-message-box hidden">
+          <!-- Error logs will render here -->
+        </div>
+
+        <button type="submit" id="btn-auth-submit" class="btn btn-primary w-full mt-2" style="height:40px; font-weight:600;">
+          Sign In
+        </button>
+      </form>
     </div>
   </div>
 
-  <!-- Firebase App & Firestore SDKs (v10 compat) -->
-  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
   <!-- App Logic -->
   <script src="app.js"></script>
 </body>
