@@ -20,13 +20,34 @@
   <div class="app-container">
     <!-- Header -->
     <header class="app-header">
-      <div class="brand">
-        <div class="brand-logo">
-          <i data-lucide="calendar-check"></i>
+      <div class="brand-group" style="display:flex; align-items:center; gap:1.5rem;">
+        <div class="brand">
+          <div class="brand-logo">
+            <i data-lucide="calendar-check"></i>
+          </div>
+          <div class="brand-text">
+            <h1>AuraAttend</h1>
+            <p>Personal Attendance Analytics</p>
+          </div>
         </div>
-        <div class="brand-text">
-          <h1>AuraAttend</h1>
-          <p>Personal Attendance Analytics</p>
+        
+        <!-- Profile Switcher Dropdown -->
+        <div class="profile-switcher-container">
+          <button id="btn-profile-dropdown" class="btn btn-secondary profile-btn" style="height:36px; padding:0.4rem 0.85rem;">
+            <i data-lucide="user" style="width:16px; height:16px;"></i>
+            <span id="active-profile-name">Default Profile</span>
+            <i data-lucide="chevron-down" style="width:14px; height:14px; margin-left:0.25rem;"></i>
+          </button>
+          <div id="profile-dropdown-menu" class="profile-dropdown-menu hidden">
+            <div class="profile-list" id="profile-list-items">
+              <!-- Dynamic profile items -->
+            </div>
+            <div class="profile-dropdown-divider"></div>
+            <button id="btn-add-profile" class="profile-dropdown-action">
+              <i data-lucide="plus" style="width:14px; height:14px;"></i>
+              <span>Create New Profile</span>
+            </button>
+          </div>
         </div>
       </div>
 

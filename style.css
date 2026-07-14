@@ -1484,3 +1484,128 @@ body {
   color: var(--text-muted);
   font-style: italic;
 }
+
+/* Profile Switcher Styles */
+.profile-switcher-container {
+  position: relative;
+  display: inline-block;
+}
+
+.profile-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.profile-dropdown-menu {
+  position: absolute;
+  top: 115%;
+  left: 0;
+  background: rgba(18, 19, 28, 0.95);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg), var(--shadow-glow);
+  width: 220px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  padding: 0.5rem 0;
+  backdrop-filter: blur(20px);
+  transform-origin: top left;
+  transition: all 0.2s ease;
+}
+
+.profile-list {
+  max-height: 200px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.profile-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 1rem;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  transition: all 0.2s;
+}
+
+.profile-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+  color: #fff;
+}
+
+.profile-item.active {
+  color: var(--accent-glow-start);
+  font-weight: 600;
+  background: rgba(99, 102, 241, 0.06);
+}
+
+.profile-item-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.profile-item-actions {
+  display: flex;
+  align-items: center;
+  margin-left: 0.5rem;
+}
+
+.btn-delete-profile {
+  background: transparent;
+  border: none;
+  color: var(--danger-color);
+  opacity: 0.5;
+  cursor: pointer;
+  padding: 0.2rem;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.btn-delete-profile:hover {
+  opacity: 1;
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.profile-dropdown-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 0.4rem 0;
+}
+
+.profile-dropdown-action {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.profile-dropdown-action:hover {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--accent-glow-end);
+}

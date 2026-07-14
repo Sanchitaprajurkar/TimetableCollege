@@ -17,6 +17,17 @@ let selectedDateString = null;
 // Temporary schedule draft parsed during import
 let tempParsedSchedule = {};
 
+// Profile state
+let profiles = [];
+let activeProfileId = 'default';
+
+// DOM Elements - Profile Switcher
+const btnProfileDropdown = document.getElementById('btn-profile-dropdown');
+const profileDropdownMenu = document.getElementById('profile-dropdown-menu');
+const profileListItems = document.getElementById('profile-list-items');
+const activeProfileNameLabel = document.getElementById('active-profile-name');
+const btnAddProfile = document.getElementById('btn-add-profile');
+
 // DOM Elements - Navigation & Modals
 const tabBtnDashboard = document.getElementById('tab-btn-dashboard');
 const tabBtnCalendar = document.getElementById('tab-btn-calendar');
@@ -97,62 +108,101 @@ const fileImport = document.getElementById('import-file');
 document.addEventListener('DOMContentLoaded', () => {
   loadStateFromLocalStorage();
   setupEventListeners();
+  setupProfileEventListeners();
   setupTimetableDragAndDrop();
   
   selectedDateString = getTodayDateString();
   
   renderApp();
+  renderProfileDropdownList();
   lucide.createIcons();
 });
 
 // Load state from LocalStorage
 function loadStateFromLocalStorage() {
-  const stored = localStorage.getItem('aura_attend_data');
-  if (stored) {
+  const storedProfiles = localStorage.getItem('aura_attend_profiles');
+  const storedActiveId = localStorage.getItem('aura_attend_active_profile_id');
+  
+  if (storedProfiles) {
     try {
-      state = JSON.parse(stored);
+      profiles = JSON.parse(storedProfiles);
+      activeProfileId = storedActiveId || (profiles[0] && profiles[0].id) || 'default';
       
-      // Upgrade logic / default structures
-      if (!Array.isArray(state.subjects)) state.subjects = [];
-      if (!state.logs || typeof state.logs !== 'object') state.logs = {};
-      if (!state.schedule || typeof state.schedule !== 'object') state.schedule = {};
-      if (typeof state.targetPercentage !== 'number') state.targetPercentage = 75;
+      let activeProfile = profiles.find(p => p.id === activeProfileId);
+      if (!activeProfile && profiles.length > 0) {
+        activeProfile = profiles[0];
+        activeProfileId = activeProfile.id;
+      }
       
-      // Normalize legacy logs (string -> array of strings)
-      Object.keys(state.logs).forEach(date => {
-        const dayLog = state.logs[date];
-        if (dayLog && typeof dayLog === 'object') {
-          Object.keys(dayLog).forEach(subjId => {
-            if (typeof dayLog[subjId] === 'string') {
-              dayLog[subjId] = [dayLog[subjId]];
-            }
-          });
-        }
-      });
-      
-      // Migrate older counters schema to historical baselines
-      state.subjects.forEach(sub => {
-        if (sub.present !== undefined && sub.historicalPresent === undefined) {
-          sub.historicalPresent = sub.present;
-          delete sub.present;
-        }
-        if (sub.total !== undefined && sub.historicalTotal === undefined) {
-          sub.historicalTotal = sub.total;
-          delete sub.total;
-        }
-        if (sub.historicalPresent === undefined) sub.historicalPresent = 0;
-        if (sub.historicalTotal === undefined) sub.historicalTotal = 0;
-      });
-
-      targetRange.value = state.targetPercentage;
-      targetValueLabel.textContent = `${state.targetPercentage}%`;
+      if (activeProfile) {
+        state = activeProfile.data;
+      } else {
+        resetToDefaultState();
+        profiles = [{ id: 'default', name: 'Default Profile', data: state }];
+        activeProfileId = 'default';
+      }
     } catch (e) {
-      console.error('Failed to parse localStorage data, resetting', e);
+      console.error('Failed to parse localStorage profiles, resetting', e);
       resetToDefaultState();
+      profiles = [{ id: 'default', name: 'Default Profile', data: state }];
+      activeProfileId = 'default';
     }
   } else {
-    resetToDefaultState();
+    // Migration: Check if legacy single-profile data exists
+    const legacyStored = localStorage.getItem('aura_attend_data');
+    if (legacyStored) {
+      try {
+        state = JSON.parse(legacyStored);
+        profiles = [{ id: 'default', name: 'Default Profile', data: state }];
+        activeProfileId = 'default';
+        saveStateToLocalStorage();
+      } catch (e) {
+        console.error('Failed to parse legacy data', e);
+        resetToDefaultState();
+        profiles = [{ id: 'default', name: 'Default Profile', data: state }];
+        activeProfileId = 'default';
+      }
+    } else {
+      resetToDefaultState();
+      profiles = [{ id: 'default', name: 'Default Profile', data: state }];
+      activeProfileId = 'default';
+    }
   }
+  
+  // Upgrade logic / data structures for active state
+  if (!Array.isArray(state.subjects)) state.subjects = [];
+  if (!state.logs || typeof state.logs !== 'object') state.logs = {};
+  if (!state.schedule || typeof state.schedule !== 'object') state.schedule = {};
+  if (typeof state.targetPercentage !== 'number') state.targetPercentage = 75;
+  
+  // Normalize legacy logs (string -> array of strings)
+  Object.keys(state.logs).forEach(date => {
+    const dayLog = state.logs[date];
+    if (dayLog && typeof dayLog === 'object') {
+      Object.keys(dayLog).forEach(subjId => {
+        if (typeof dayLog[subjId] === 'string') {
+          dayLog[subjId] = [dayLog[subjId]];
+        }
+      });
+    }
+  });
+
+  // Migrate older counters schema to historical baselines
+  state.subjects.forEach(sub => {
+    if (sub.present !== undefined && sub.historicalPresent === undefined) {
+      sub.historicalPresent = sub.present;
+      delete sub.present;
+    }
+    if (sub.total !== undefined && sub.historicalTotal === undefined) {
+      sub.historicalTotal = sub.total;
+      delete sub.total;
+    }
+    if (sub.historicalPresent === undefined) sub.historicalPresent = 0;
+    if (sub.historicalTotal === undefined) sub.historicalTotal = 0;
+  });
+
+  targetRange.value = state.targetPercentage;
+  targetValueLabel.textContent = `${state.targetPercentage}%`;
 }
 
 function resetToDefaultState() {
@@ -168,7 +218,110 @@ function resetToDefaultState() {
 
 // Save state to LocalStorage
 function saveStateToLocalStorage() {
-  localStorage.setItem('aura_attend_data', JSON.stringify(state));
+  const activeProfile = profiles.find(p => p.id === activeProfileId);
+  if (activeProfile) {
+    activeProfile.data = state;
+  }
+  localStorage.setItem('aura_attend_profiles', JSON.stringify(profiles));
+  localStorage.setItem('aura_attend_active_profile_id', activeProfileId);
+}
+
+// Bind event listeners for profile dropdown
+function setupProfileEventListeners() {
+  btnProfileDropdown.addEventListener('click', (e) => {
+    e.stopPropagation();
+    profileDropdownMenu.classList.toggle('hidden');
+  });
+
+  // Close profile dropdown when clicking outside
+  window.addEventListener('click', () => {
+    profileDropdownMenu.classList.add('hidden');
+  });
+
+  btnAddProfile.addEventListener('click', (e) => {
+    e.stopPropagation();
+    profileDropdownMenu.classList.add('hidden');
+    
+    const profileName = prompt("Enter Student Profile Name:");
+    if (profileName && profileName.trim()) {
+      const cleanName = profileName.trim();
+      const newProfileId = 'prof-' + Date.now() + '-' + Math.floor(Math.random() * 100);
+      
+      const newProfile = {
+        id: newProfileId,
+        name: cleanName,
+        data: {
+          subjects: [],
+          logs: {},
+          schedule: {},
+          targetPercentage: 75
+        }
+      };
+      
+      profiles.push(newProfile);
+      activeProfileId = newProfileId;
+      state = newProfile.data;
+      
+      saveStateToLocalStorage();
+      renderApp();
+      renderProfileDropdownList();
+      alert(`Profile "${cleanName}" created and activated!`);
+    }
+  });
+}
+
+function renderProfileDropdownList() {
+  const activeProfile = profiles.find(p => p.id === activeProfileId);
+  if (activeProfile) {
+    activeProfileNameLabel.textContent = activeProfile.name;
+  }
+
+  profileListItems.innerHTML = '';
+  profiles.forEach(p => {
+    const profileRow = document.createElement('div');
+    profileRow.className = `profile-item ${p.id === activeProfileId ? 'active' : ''}`;
+    profileRow.style = 'display:flex; justify-content:space-between; align-items:center; width:100%;';
+    
+    const nameBtn = document.createElement('button');
+    nameBtn.className = 'profile-item-name';
+    nameBtn.style = 'background:transparent; border:none; text-align:left; color:inherit; font-size:inherit; font-family:inherit; flex:1; cursor:pointer; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0.25rem 0;';
+    nameBtn.textContent = p.name;
+    nameBtn.addEventListener('click', () => {
+      activeProfileId = p.id;
+      state = p.data;
+      saveStateToLocalStorage();
+      renderApp();
+      renderProfileDropdownList();
+    });
+    
+    profileRow.appendChild(nameBtn);
+    
+    // Show delete button only if it's not the last remaining profile
+    if (profiles.length > 1) {
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'btn-delete-profile';
+      deleteBtn.innerHTML = '<i data-lucide="trash-2" style="width:12px; height:12px;"></i>';
+      deleteBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (confirm(`Are you sure you want to delete profile "${p.name}"? All logs and settings for this profile will be permanently deleted.`)) {
+          // Remove profile
+          profiles = profiles.filter(prof => prof.id !== p.id);
+          if (activeProfileId === p.id) {
+            activeProfileId = profiles[0].id;
+            state = profiles[0].data;
+          }
+          saveStateToLocalStorage();
+          renderApp();
+          renderProfileDropdownList();
+        }
+      });
+      profileRow.appendChild(deleteBtn);
+    }
+    
+    profileListItems.appendChild(profileRow);
+  });
+  
+  lucide.createIcons();
 }
 
 // Set up all interactive event listeners
