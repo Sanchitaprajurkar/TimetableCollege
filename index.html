@@ -43,14 +43,6 @@
               <span style="font-weight: 600; color: #fff;">Logged in as:</span>
               <div id="user-email-label" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 0.15rem; color: var(--accent-glow-end);">student@college.edu</div>
             </div>
-            <div class="profile-list" id="profile-list-items">
-              <!-- Dynamic profile items -->
-            </div>
-            <div class="profile-dropdown-divider"></div>
-            <button id="btn-add-profile" class="profile-dropdown-action">
-              <i data-lucide="plus" style="width:14px; height:14px;"></i>
-              <span>Create New Profile</span>
-            </button>
             <div class="profile-dropdown-divider"></div>
             <button id="btn-sign-out" class="profile-dropdown-action" style="color: var(--danger-color); font-weight: 600;">
               <i data-lucide="log-out" style="width:14px; height:14px;"></i>
@@ -440,6 +432,28 @@
 
       <!-- Login / Signup Form -->
       <form id="auth-form" class="auth-form" onsubmit="handleAuthSubmit(event); return false;">
+        <!-- Signup-only fields -->
+        <div id="auth-signup-fields" class="hidden" style="display:flex; flex-direction:column; gap:1rem;">
+          <div class="field-group">
+            <label style="font-size:0.75rem; font-weight:600; color:var(--text-secondary); display:block; margin-bottom:0.4rem;">Full Name</label>
+            <input type="text" id="auth-name" class="input-text" placeholder="John Doe" style="height:38px;">
+          </div>
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:0.75rem;">
+            <div class="field-group">
+              <label style="font-size:0.75rem; font-weight:600; color:var(--text-secondary); display:block; margin-bottom:0.4rem;">Class</label>
+              <input type="text" id="auth-class" class="input-text" placeholder="e.g. TE-CSE" style="height:38px;">
+            </div>
+            <div class="field-group">
+              <label style="font-size:0.75rem; font-weight:600; color:var(--text-secondary); display:block; margin-bottom:0.4rem;">Division</label>
+              <input type="text" id="auth-division" class="input-text" placeholder="e.g. A" style="height:38px;">
+            </div>
+          </div>
+          <div class="field-group">
+            <label style="font-size:0.75rem; font-weight:600; color:var(--text-secondary); display:block; margin-bottom:0.4rem;">Roll Number</label>
+            <input type="text" id="auth-roll" class="input-text" placeholder="e.g. 21CO304" style="height:38px;">
+          </div>
+        </div>
+
         <div class="field-group">
           <label style="font-size:0.75rem; font-weight:600; color:var(--text-secondary); display:block; margin-bottom:0.4rem;">Email Address</label>
           <input type="email" id="auth-email" class="input-text" placeholder="name@college.edu" required style="height:38px;">

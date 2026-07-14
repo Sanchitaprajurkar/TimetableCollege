@@ -17,16 +17,10 @@ let selectedDateString = null;
 // Temporary schedule draft parsed during import
 let tempParsedSchedule = {};
 
-// Profile state
-let profiles = [];
-let activeProfileId = 'default';
-
 // DOM Elements - Profile Switcher
 const btnProfileDropdown = document.getElementById('btn-profile-dropdown');
 const profileDropdownMenu = document.getElementById('profile-dropdown-menu');
-const profileListItems = document.getElementById('profile-list-items');
 const activeProfileNameLabel = document.getElementById('active-profile-name');
-const btnAddProfile = document.getElementById('btn-add-profile');
 
 // DOM Elements - Navigation & Modals
 const tabBtnDashboard = document.getElementById('tab-btn-dashboard');
@@ -121,9 +115,15 @@ const firebaseConfig = {
 let firestoreDb = null;
 let isSyncingFromCloud = false;
 let currentUser = null;
+let sharedTemplates = [];
 
 // Firebase Auth DOM Elements
 const authContainer = document.getElementById('auth-container');
+const authSignupFields = document.getElementById('auth-signup-fields');
+const authNameInput = document.getElementById('auth-name');
+const authClassInput = document.getElementById('auth-class');
+const authDivisionInput = document.getElementById('auth-division');
+const authRollInput = document.getElementById('auth-roll');
 const authEmailInput = document.getElementById('auth-email');
 const authPasswordInput = document.getElementById('auth-password');
 const authErrorBox = document.getElementById('auth-error-box');
@@ -144,7 +144,6 @@ document.addEventListener('DOMContentLoaded', () => {
   setupAuthObserver();
   setupAuthEventListeners();
   
-  loadStateFromLocalStorage();
   setupEventListeners();
   setupProfileEventListeners();
   setupTimetableDragAndDrop();
@@ -156,58 +155,7 @@ document.addEventListener('DOMContentLoaded', () => {
   lucide.createIcons();
 });
 
-// Load state from LocalStorage
-function loadStateFromLocalStorage() {
-  const storedProfiles = localStorage.getItem('aura_attend_profiles');
-  const storedActiveId = localStorage.getItem('aura_attend_active_profile_id');
-  
-  if (storedProfiles) {
-    try {
-      profiles = JSON.parse(storedProfiles);
-      activeProfileId = storedActiveId || (profiles[0] && profiles[0].id) || 'default';
-      
-      let activeProfile = profiles.find(p => p.id === activeProfileId);
-      if (!activeProfile && profiles.length > 0) {
-        activeProfile = profiles[0];
-        activeProfileId = activeProfile.id;
-      }
-      
-      if (activeProfile) {
-        state = activeProfile.data;
-      } else {
-        resetToDefaultState();
-        profiles = [{ id: 'default', name: 'Default Profile', data: state }];
-        activeProfileId = 'default';
-      }
-    } catch (e) {
-      console.error('Failed to parse localStorage profiles, resetting', e);
-      resetToDefaultState();
-      profiles = [{ id: 'default', name: 'Default Profile', data: state }];
-      activeProfileId = 'default';
-    }
-  } else {
-    // Migration: Check if legacy single-profile data exists
-    const legacyStored = localStorage.getItem('aura_attend_data');
-    if (legacyStored) {
-      try {
-        state = JSON.parse(legacyStored);
-        profiles = [{ id: 'default', name: 'Default Profile', data: state }];
-        activeProfileId = 'default';
-        saveStateToLocalStorage();
-      } catch (e) {
-        console.error('Failed to parse legacy data', e);
-        resetToDefaultState();
-        profiles = [{ id: 'default', name: 'Default Profile', data: state }];
-        activeProfileId = 'default';
-      }
-    } else {
-      resetToDefaultState();
-      profiles = [{ id: 'default', name: 'Default Profile', data: state }];
-      activeProfileId = 'default';
-    }
-  }
-  
-  // Upgrade logic / data structures for active state
+function normalizeState() {
   if (!Array.isArray(state.subjects)) state.subjects = [];
   if (!state.logs || typeof state.logs !== 'object') state.logs = {};
   if (!state.schedule || typeof state.schedule !== 'object') state.schedule = {};
@@ -225,16 +173,8 @@ function loadStateFromLocalStorage() {
     }
   });
 
-  // Migrate older counters schema to historical baselines
+  // Ensure historical fields are present
   state.subjects.forEach(sub => {
-    if (sub.present !== undefined && sub.historicalPresent === undefined) {
-      sub.historicalPresent = sub.present;
-      delete sub.present;
-    }
-    if (sub.total !== undefined && sub.historicalTotal === undefined) {
-      sub.historicalTotal = sub.total;
-      delete sub.total;
-    }
     if (sub.historicalPresent === undefined) sub.historicalPresent = 0;
     if (sub.historicalTotal === undefined) sub.historicalTotal = 0;
   });
@@ -254,22 +194,48 @@ function resetToDefaultState() {
   targetValueLabel.textContent = '75%';
 }
 
-// Save state to LocalStorage
+// Save state directly to Firestore subcollections
 function saveStateToLocalStorage() {
-  const activeProfile = profiles.find(p => p.id === activeProfileId);
-  if (activeProfile) {
-    activeProfile.data = state;
-  }
-  localStorage.setItem('aura_attend_profiles', JSON.stringify(profiles));
-  localStorage.setItem('aura_attend_active_profile_id', activeProfileId);
+  if (!firestoreDb || !currentUser || isSyncingFromCloud) return;
 
-  // Sync to Firebase Cloud Firestore under logged-in user document
-  if (firestoreDb && !isSyncingFromCloud && currentUser) {
-    firestoreDb.collection("users").doc(currentUser.uid).set({
-      profiles: profiles,
-      activeProfileId: activeProfileId
-    }).catch(e => console.error("Error updating user profiles in cloud:", e));
+  // 1. Sync subjects to users/{uid}/subjects/{id} and delete orphaned subjects
+  state.subjects.forEach(sub => {
+    firestoreDb.collection("users").doc(currentUser.uid).collection("subjects").doc(sub.id).set(sub)
+      .catch(e => console.error("Error saving subject to cloud:", e));
+  });
+  
+  firestoreDb.collection("users").doc(currentUser.uid).collection("subjects").get().then(snapshot => {
+    snapshot.forEach(doc => {
+      const dbSubId = doc.id;
+      if (!state.subjects.some(s => s.id === dbSubId)) {
+        firestoreDb.collection("users").doc(currentUser.uid).collection("subjects").doc(dbSubId).delete()
+          .catch(e => console.error("Error deleting orphaned subject:", e));
+      }
+    });
+  }).catch(e => console.error("Failed to read subjects for cleanup:", e));
+
+  // 2. Sync attendance logs for the current selectedDateString
+  if (selectedDateString) {
+    const dayLogs = state.logs[selectedDateString] || {};
+    firestoreDb.collection("users").doc(currentUser.uid).collection("attendance").doc(selectedDateString).set({
+      date: selectedDateString,
+      logs: dayLogs
+    }).catch(e => console.error("Error saving attendance to cloud:", e));
   }
+
+  // 3. Sync personal timetable
+  firestoreDb.collection("users").doc(currentUser.uid).collection("timetable").doc("weekly").set({
+    schedule: state.schedule
+  }).catch(e => console.error("Error saving timetable to cloud:", e));
+  
+  // 4. Sync target percentage
+  firestoreDb.collection("users").doc(currentUser.uid).update({
+    targetPercentage: state.targetPercentage
+  }).catch(() => {
+    firestoreDb.collection("users").doc(currentUser.uid).set({
+      targetPercentage: state.targetPercentage
+    }, { merge: true }).catch(e => console.error("Error updating target percentage:", e));
+  });
 }
 
 // Bind event listeners for profile dropdown
@@ -283,92 +249,17 @@ function setupProfileEventListeners() {
   window.addEventListener('click', () => {
     profileDropdownMenu.classList.add('hidden');
   });
-
-  btnAddProfile.addEventListener('click', (e) => {
-    e.stopPropagation();
-    profileDropdownMenu.classList.add('hidden');
-    
-    const profileName = prompt("Enter Student Profile Name:");
-    if (profileName && profileName.trim()) {
-      const cleanName = profileName.trim();
-      const newProfileId = 'prof-' + Date.now() + '-' + Math.floor(Math.random() * 100);
-      
-      const newProfile = {
-        id: newProfileId,
-        name: cleanName,
-        data: {
-          subjects: [],
-          logs: {},
-          schedule: {},
-          targetPercentage: 75
-        }
-      };
-      
-      profiles.push(newProfile);
-      activeProfileId = newProfileId;
-      state = newProfile.data;
-      
-      saveStateToLocalStorage();
-      renderApp();
-      renderProfileDropdownList();
-      alert(`Profile "${cleanName}" created and activated!`);
-    }
-  });
 }
 
 function renderProfileDropdownList() {
-  const activeProfile = profiles.find(p => p.id === activeProfileId);
-  if (activeProfile) {
-    activeProfileNameLabel.textContent = activeProfile.name;
-  }
-
-  profileListItems.innerHTML = '';
-  profiles.forEach(p => {
-    const profileRow = document.createElement('div');
-    profileRow.className = `profile-item ${p.id === activeProfileId ? 'active' : ''}`;
-    profileRow.style = 'display:flex; justify-content:space-between; align-items:center; width:100%;';
-    
-    const nameBtn = document.createElement('button');
-    nameBtn.className = 'profile-item-name';
-    nameBtn.style = 'background:transparent; border:none; text-align:left; color:inherit; font-size:inherit; font-family:inherit; flex:1; cursor:pointer; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0.25rem 0;';
-    nameBtn.textContent = p.name;
-    nameBtn.addEventListener('click', () => {
-      activeProfileId = p.id;
-      state = p.data;
-      saveStateToLocalStorage();
-      renderApp();
-      renderProfileDropdownList();
-    });
-    
-    profileRow.appendChild(nameBtn);
-    
-    // Show delete button only if it's not the last remaining profile
-    if (profiles.length > 1) {
-      const deleteBtn = document.createElement('button');
-      deleteBtn.className = 'btn-delete-profile';
-      deleteBtn.innerHTML = '<i data-lucide="trash-2" style="width:12px; height:12px;"></i>';
-      deleteBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (confirm(`Are you sure you want to delete profile "${p.name}"? All logs and settings for this profile will be permanently deleted.`)) {
-          // Remove profile
-          profiles = profiles.filter(prof => prof.id !== p.id);
-          if (activeProfileId === p.id) {
-            activeProfileId = profiles[0].id;
-            state = profiles[0].data;
-          }
-          saveStateToLocalStorage();
-          renderApp();
-          renderProfileDropdownList();
-        }
-      });
-      profileRow.appendChild(deleteBtn);
-    }
-    
-    profileListItems.appendChild(profileRow);
-  });
-  
+  // User metadata name is rendered dynamically in initUserCloudSync
   lucide.createIcons();
 }
+
+let unsubUser = null;
+let unsubSubjects = null;
+let unsubAttendance = null;
+let unsubTimetable = null;
 
 function initFirebaseConnection(config) {
   try {
@@ -378,12 +269,12 @@ function initFirebaseConnection(config) {
     firestoreDb = firebase.firestore();
     
     // Sync Firestore shared templates real-time (global for everyone)
-    firestoreDb.collection("shared_timetables").onSnapshot(snapshot => {
+    firestoreDb.collection("timetableTemplates").onSnapshot(snapshot => {
       const templates = [];
       snapshot.forEach(doc => {
         templates.push(doc.data());
       });
-      localStorage.setItem('aura_attend_shared_timetables', JSON.stringify(templates));
+      sharedTemplates = templates;
       if (modalTimetable.classList.contains('active')) {
         renderSharedTemplatesList();
       }
@@ -401,54 +292,87 @@ function initFirebaseConnection(config) {
 function initUserCloudSync(userId) {
   if (!firestoreDb) return;
   
-  // Real-time synchronization of the logged-in student's profiles database
-  firestoreDb.collection("users").doc(userId).onSnapshot(doc => {
+  isSyncingFromCloud = true;
+  
+  if (unsubUser) unsubUser();
+  if (unsubSubjects) unsubSubjects();
+  if (unsubAttendance) unsubAttendance();
+  if (unsubTimetable) unsubTimetable();
+
+  // 1. Sync User Metadata
+  unsubUser = firestoreDb.collection("users").doc(userId).onSnapshot(doc => {
+    if (doc.exists) {
+      const data = doc.data();
+      state.targetPercentage = data.targetPercentage || 75;
+      
+      const activeProfileNameLabel = document.getElementById('active-profile-name');
+      activeProfileNameLabel.textContent = data.name || "Default Student";
+      
+      userEmailLabel.innerHTML = `
+        <div style="font-weight:600; color:#fff; margin-bottom:0.15rem;">${data.name || 'Student'}</div>
+        <div style="color:var(--text-secondary); margin-bottom:0.15rem;">${data.email}</div>
+        <div style="color:var(--text-muted); font-size:0.7rem;">Roll: ${data.rollNo || 'N/A'} | Class: ${data.class || 'N/A'} | Div: ${data.division || 'N/A'}</div>
+      `;
+      normalizeState();
+      renderApp();
+    }
+  }, err => console.error("User metadata sync failed:", err));
+
+  // 2. Sync Subjects subcollection
+  unsubSubjects = firestoreDb.collection("users").doc(userId).collection("subjects").onSnapshot(snapshot => {
+    isSyncingFromCloud = true;
+    const dbSubjects = [];
+    snapshot.forEach(doc => {
+      dbSubjects.push(doc.data());
+    });
+    state.subjects = dbSubjects;
+    normalizeState();
+    renderApp();
+    isSyncingFromCloud = false;
+  }, err => console.error("Subjects sync failed:", err));
+
+  // 3. Sync Attendance Logs subcollection
+  unsubAttendance = firestoreDb.collection("users").doc(userId).collection("attendance").onSnapshot(snapshot => {
+    isSyncingFromCloud = true;
+    state.logs = {};
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      if (data.date) {
+        state.logs[data.date] = data.logs || {};
+      }
+    });
+    normalizeState();
+    renderApp();
+    isSyncingFromCloud = false;
+  }, err => console.error("Attendance sync failed:", err));
+
+  // 4. Sync Timetable
+  unsubTimetable = firestoreDb.collection("users").doc(userId).collection("timetable").doc("weekly").onSnapshot(doc => {
     isSyncingFromCloud = true;
     if (doc.exists) {
-      const userData = doc.data();
-      profiles = userData.profiles || [];
-      activeProfileId = userData.activeProfileId || 'default';
-      
-      let activeProfile = profiles.find(p => p.id === activeProfileId);
-      if (!activeProfile && profiles.length > 0) {
-        activeProfile = profiles[0];
-        activeProfileId = activeProfile.id;
-      }
-      
-      if (activeProfile) {
-        state = activeProfile.data;
-      } else {
-        resetToDefaultState();
-        profiles = [{ id: 'default', name: 'Default Profile', data: state }];
-        activeProfileId = 'default';
-      }
+      state.schedule = doc.data().schedule || {};
     } else {
-      // First time user signup: Create default layout document in cloud
-      resetToDefaultState();
-      profiles = [{ id: 'default', name: 'Default Profile', data: state }];
-      activeProfileId = 'default';
-      saveStateToLocalStorage();
+      state.schedule = {};
     }
-    
+    normalizeState();
     renderApp();
-    renderProfileDropdownList();
     isSyncingFromCloud = false;
-  }, err => {
-    console.error("User database sync failed:", err);
-    isSyncingFromCloud = false;
-  });
+  }, err => console.error("Timetable sync failed:", err));
 }
 
 function setupAuthObserver() {
   firebase.auth().onAuthStateChanged(user => {
     if (user) {
       currentUser = user;
-      userEmailLabel.textContent = user.email;
       authContainer.classList.add('hidden');
       initUserCloudSync(user.uid);
     } else {
       currentUser = null;
-      profiles = [];
+      if (unsubUser) unsubUser();
+      if (unsubSubjects) unsubSubjects();
+      if (unsubAttendance) unsubAttendance();
+      if (unsubTimetable) unsubTimetable();
+      
       state = { subjects: [], logs: {}, schedule: {}, targetPercentage: 75 };
       authContainer.classList.remove('hidden');
       profileDropdownMenu.classList.add('hidden');
@@ -465,6 +389,11 @@ function setupAuthEventListeners() {
     btnTabSignup.classList.remove('active');
     btnAuthSubmit.textContent = 'Sign In';
     authErrorBox.classList.add('hidden');
+    authSignupFields.classList.add('hidden');
+    authNameInput.required = false;
+    authClassInput.required = false;
+    authDivisionInput.required = false;
+    authRollInput.required = false;
   });
 
   btnTabSignup.addEventListener('click', () => {
@@ -473,6 +402,11 @@ function setupAuthEventListeners() {
     btnTabSignin.classList.remove('active');
     btnAuthSubmit.textContent = 'Sign Up';
     authErrorBox.classList.add('hidden');
+    authSignupFields.classList.remove('hidden');
+    authNameInput.required = true;
+    authClassInput.required = true;
+    authDivisionInput.required = true;
+    authRollInput.required = true;
   });
 
   btnSignOut.addEventListener('click', () => {
@@ -506,7 +440,24 @@ window.handleAuthSubmit = function(event) {
         btnAuthSubmit.textContent = 'Sign In';
       });
   } else {
+    const nameVal = authNameInput.value.trim();
+    const classVal = authClassInput.value.trim();
+    const divVal = authDivisionInput.value.trim();
+    const rollVal = authRollInput.value.trim();
+
     firebase.auth().createUserWithEmailAndPassword(email, password)
+      .then((userCredential) => {
+        const user = userCredential.user;
+        // Save user metadata to users/{uid}
+        return firestoreDb.collection("users").doc(user.uid).set({
+          name: nameVal,
+          email: email,
+          rollNo: rollVal,
+          class: classVal,
+          division: divVal,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      })
       .then(() => {
         alert("Account successfully created!");
         btnAuthSubmit.disabled = false;
@@ -599,20 +550,12 @@ function setupEventListeners() {
       alert("Please select a template to load!");
       return;
     }
-    const stored = localStorage.getItem('aura_attend_shared_timetables');
-    if (stored) {
-      try {
-        const templates = JSON.parse(stored);
-        const selected = templates.find(t => t.id === templateId);
-        if (selected) {
-          // Load schedule into tempParsedSchedule
-          tempParsedSchedule = JSON.parse(JSON.stringify(selected.schedule));
-          renderTimetablePreviewEditor();
-          alert(`Loaded template "${selected.name}"! Feel free to edit slots or click 'Confirm & Import' to save.`);
-        }
-      } catch (e) {
-        console.error(e);
-      }
+    const selected = sharedTemplates.find(t => t.id === templateId);
+    if (selected) {
+      // Load schedule into tempParsedSchedule
+      tempParsedSchedule = JSON.parse(JSON.stringify(selected.schedule));
+      renderTimetablePreviewEditor();
+      alert(`Loaded template "${selected.name}"! Feel free to edit slots or click 'Confirm & Import' to save.`);
     }
   });
 
@@ -745,23 +688,13 @@ function openTimetableModal(editMode = false) {
 }
 
 function renderSharedTemplatesList() {
-  const stored = localStorage.getItem('aura_attend_shared_timetables');
-  let templates = [];
-  if (stored) {
-    try {
-      templates = JSON.parse(stored);
-    } catch(e) {
-      console.error(e);
-    }
-  }
-  
   selectSharedTemplate.innerHTML = '<option value="">-- Choose a Saved Template --</option>';
   
-  if (templates.length === 0) {
+  if (sharedTemplates.length === 0) {
     sharedTemplatesSection.classList.add('hidden');
   } else {
     sharedTemplatesSection.classList.remove('hidden');
-    templates.forEach(t => {
+    sharedTemplates.forEach(t => {
       const option = document.createElement('option');
       option.value = t.id;
       option.textContent = t.name;
@@ -1890,27 +1823,8 @@ function confirmTimetableImport() {
     };
 
     if (firestoreDb) {
-      firestoreDb.collection("shared_timetables").doc(templateId).set(newTemplate)
+      firestoreDb.collection("timetableTemplates").doc(templateId).set(newTemplate)
         .catch(e => console.error("Error saving template to cloud:", e));
-    } else {
-      const stored = localStorage.getItem('aura_attend_shared_timetables');
-      let templates = [];
-      if (stored) {
-        try {
-          templates = JSON.parse(stored);
-        } catch (e) {
-          console.error(e);
-        }
-      }
-      // Overwrite alert if name duplicates
-      if (templates.some(t => t.name.toLowerCase() === tName.toLowerCase())) {
-        if (!confirm(`A template named "${tName}" already exists. Do you want to overwrite it?`)) {
-          return;
-        }
-        templates = templates.filter(t => t.name.toLowerCase() !== tName.toLowerCase());
-      }
-      templates.push(newTemplate);
-      localStorage.setItem('aura_attend_shared_timetables', JSON.stringify(templates));
     }
   }
 
