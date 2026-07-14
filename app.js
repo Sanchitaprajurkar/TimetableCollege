@@ -107,6 +107,20 @@ const btnLoadTemplate = document.getElementById('btn-load-template');
 const chkSaveTemplate = document.getElementById('chk-save-template');
 const txtTemplateName = document.getElementById('txt-template-name');
 
+// Firebase Variables
+let firebaseConfig = null;
+let firestoreDb = null;
+let isSyncingFromCloud = false;
+
+// Firebase DOM Elements
+const btnCloud = document.getElementById('btn-cloud');
+const modalCloud = document.getElementById('modal-cloud');
+const btnCloseCloud = document.getElementById('btn-close-cloud');
+const btnSaveCloud = document.getElementById('btn-save-cloud');
+const btnDisconnectCloud = document.getElementById('btn-disconnect-cloud');
+const firebaseConfigInput = document.getElementById('firebase-config-input');
+const cloudStatusBadge = document.getElementById('cloud-status-badge');
+
 // Backup actions
 const btnExport = document.getElementById('btn-export');
 const fileImport = document.getElementById('import-file');
@@ -116,9 +130,22 @@ document.addEventListener('DOMContentLoaded', () => {
   loadStateFromLocalStorage();
   setupEventListeners();
   setupProfileEventListeners();
+  setupFirebaseEventListeners();
   setupTimetableDragAndDrop();
   
   selectedDateString = getTodayDateString();
+  
+  // Initialize Firebase on startup if saved config exists
+  const savedFirebaseConfig = localStorage.getItem('aura_attend_firebase_config');
+  if (savedFirebaseConfig) {
+    try {
+      const configObj = JSON.parse(savedFirebaseConfig);
+      firebaseConfigInput.value = JSON.stringify(configObj, null, 2);
+      initFirebaseConnection(configObj);
+    } catch (e) {
+      console.error("Failed to auto-init Firebase:", e);
+    }
+  }
   
   renderApp();
   renderProfileDropdownList();
@@ -231,6 +258,12 @@ function saveStateToLocalStorage() {
   }
   localStorage.setItem('aura_attend_profiles', JSON.stringify(profiles));
   localStorage.setItem('aura_attend_active_profile_id', activeProfileId);
+
+  // Sync to Firebase Cloud Firestore
+  if (firestoreDb && !isSyncingFromCloud && activeProfile) {
+    firestoreDb.collection("profiles").doc(activeProfileId).set(activeProfile)
+      .catch(e => console.error("Error updating profile in cloud:", e));
+  }
 }
 
 // Bind event listeners for profile dropdown
@@ -318,6 +351,13 @@ function renderProfileDropdownList() {
             state = profiles[0].data;
           }
           saveStateToLocalStorage();
+          
+          // Delete from Firestore
+          if (firestoreDb) {
+            firestoreDb.collection("profiles").doc(p.id).delete()
+              .catch(e => console.error("Error deleting from cloud:", e));
+          }
+          
           renderApp();
           renderProfileDropdownList();
         }
@@ -329,6 +369,114 @@ function renderProfileDropdownList() {
   });
   
   lucide.createIcons();
+}
+
+function setupFirebaseEventListeners() {
+  btnCloud.addEventListener('click', () => openModal(modalCloud));
+  btnCloseCloud.addEventListener('click', () => closeModal(modalCloud));
+  
+  // Close cloud modal when clicking outside
+  window.addEventListener('click', (e) => {
+    if (e.target === modalCloud) closeModal(modalCloud);
+  });
+
+  btnSaveCloud.addEventListener('click', () => {
+    const rawVal = firebaseConfigInput.value.trim();
+    if (!rawVal) {
+      alert("Please paste your Firebase configuration JSON!");
+      return;
+    }
+    try {
+      const parsedConfig = JSON.parse(rawVal);
+      if (initFirebaseConnection(parsedConfig)) {
+        alert("Firebase Cloud Database successfully connected!");
+        closeModal(modalCloud);
+      }
+    } catch (e) {
+      alert("Invalid JSON format! Copy the config object from your Firebase console.");
+    }
+  });
+
+  btnDisconnectCloud.addEventListener('click', () => {
+    if (confirm("Disconnect from Firebase? All data will fall back to local storage only.")) {
+      firestoreDb = null;
+      firebaseConfig = null;
+      localStorage.removeItem('aura_attend_firebase_config');
+      
+      cloudStatusBadge.textContent = "Disconnected (Local Mode)";
+      cloudStatusBadge.style = "background:rgba(255,255,255,0.05); color:var(--text-muted);";
+      btnDisconnectCloud.classList.add('hidden');
+      btnCloud.style.color = "";
+      
+      alert("Disconnected! App returned to Local Storage Mode.");
+      closeModal(modalCloud);
+      renderApp();
+    }
+  });
+}
+
+function initFirebaseConnection(config) {
+  try {
+    if (!firebase.apps.length) {
+      firebase.initializeApp(config);
+    }
+    firestoreDb = firebase.firestore();
+    firebaseConfig = config;
+    localStorage.setItem('aura_attend_firebase_config', JSON.stringify(config));
+    
+    cloudStatusBadge.textContent = "Connected (Cloud Active)";
+    cloudStatusBadge.style = "background:rgba(16,185,129,0.1); color:var(--safe-color); border:1px solid rgba(16,185,129,0.25);";
+    btnDisconnectCloud.classList.remove('hidden');
+    btnCloud.style.color = "var(--safe-color)";
+    
+    // Sync Firestore profiles real-time
+    firestoreDb.collection("profiles").onSnapshot(snapshot => {
+      isSyncingFromCloud = true;
+      const cloudProfiles = [];
+      snapshot.forEach(doc => {
+        cloudProfiles.push(doc.data());
+      });
+      
+      if (cloudProfiles.length > 0) {
+        profiles = cloudProfiles;
+        
+        let activeProfile = profiles.find(p => p.id === activeProfileId);
+        if (!activeProfile) {
+          activeProfile = profiles[0];
+          activeProfileId = activeProfile.id;
+        }
+        state = activeProfile.data;
+        
+        localStorage.setItem('aura_attend_profiles', JSON.stringify(profiles));
+        localStorage.setItem('aura_attend_active_profile_id', activeProfileId);
+        
+        renderApp();
+        renderProfileDropdownList();
+      }
+      isSyncingFromCloud = false;
+    }, err => {
+      console.error("Profiles sync failed:", err);
+    });
+
+    // Sync Firestore shared templates real-time
+    firestoreDb.collection("shared_timetables").onSnapshot(snapshot => {
+      const templates = [];
+      snapshot.forEach(doc => {
+        templates.push(doc.data());
+      });
+      localStorage.setItem('aura_attend_shared_timetables', JSON.stringify(templates));
+      if (modalTimetable.classList.contains('active')) {
+        renderSharedTemplatesList();
+      }
+    }, err => {
+      console.error("Shared templates sync failed:", err);
+    });
+
+    return true;
+  } catch (e) {
+    console.error("Firebase connection failed:", e);
+    return false;
+  }
 }
 
 // Set up all interactive event listeners
@@ -1693,28 +1841,35 @@ function confirmTimetableImport() {
       return;
     }
     const templateId = 'temp-' + Date.now();
-    const stored = localStorage.getItem('aura_attend_shared_timetables');
-    let templates = [];
-    if (stored) {
-      try {
-        templates = JSON.parse(stored);
-      } catch (e) {
-        console.error(e);
-      }
-    }
-    // Overwrite alert if name duplicates
-    if (templates.some(t => t.name.toLowerCase() === tName.toLowerCase())) {
-      if (!confirm(`A template named "${tName}" already exists. Do you want to overwrite it?`)) {
-        return;
-      }
-      templates = templates.filter(t => t.name.toLowerCase() !== tName.toLowerCase());
-    }
-    templates.push({
+    const newTemplate = {
       id: templateId,
       name: tName,
       schedule: tempParsedSchedule
-    });
-    localStorage.setItem('aura_attend_shared_timetables', JSON.stringify(templates));
+    };
+
+    if (firestoreDb) {
+      firestoreDb.collection("shared_timetables").doc(templateId).set(newTemplate)
+        .catch(e => console.error("Error saving template to cloud:", e));
+    } else {
+      const stored = localStorage.getItem('aura_attend_shared_timetables');
+      let templates = [];
+      if (stored) {
+        try {
+          templates = JSON.parse(stored);
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      // Overwrite alert if name duplicates
+      if (templates.some(t => t.name.toLowerCase() === tName.toLowerCase())) {
+        if (!confirm(`A template named "${tName}" already exists. Do you want to overwrite it?`)) {
+          return;
+        }
+        templates = templates.filter(t => t.name.toLowerCase() !== tName.toLowerCase());
+      }
+      templates.push(newTemplate);
+      localStorage.setItem('aura_attend_shared_timetables', JSON.stringify(templates));
+    }
   }
 
   // Merge subjects list
