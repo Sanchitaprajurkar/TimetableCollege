@@ -1609,3 +1609,88 @@ body {
   background: rgba(255, 255, 255, 0.04);
   color: var(--accent-glow-end);
 }
+
+/* Mobile Responsiveness media queries */
+@media (max-width: 768px) {
+  .app-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1.25rem;
+    padding-bottom: 1.25rem;
+  }
+  
+  .brand-group {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+  }
+
+  .tab-navigation {
+    width: 100%;
+    overflow-x: auto;
+    white-space: nowrap;
+    display: flex;
+    padding: 0.25rem;
+  }
+  
+  .tab-btn {
+    flex: 1;
+    justify-content: center;
+    padding: 0.5rem 0.65rem;
+    font-size: 0.775rem;
+    min-height: 36px;
+  }
+  
+  .modal-card {
+    width: 95% !important;
+    max-height: 92vh;
+    margin: 10px auto;
+    padding: 1.25rem !important;
+  }
+  
+  .modal-body {
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+  
+  .subject-grid {
+    grid-template-columns: 1fr !important;
+    gap: 1rem !important;
+  }
+  
+  .analytics-panel {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+  
+  .today-schedule-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+    padding: 0.75rem;
+  }
+  
+  .today-schedule-row-actions {
+    justify-content: flex-end;
+    margin-top: 0.25rem;
+  }
+
+  .calendar-grid-layout {
+    grid-template-columns: 1fr !important;
+    gap: 1.5rem !important;
+  }
+  
+  .grid-slot-select {
+    min-width: 80px !important;
+    font-size: 0.7rem !important;
+  }
+  
+  .editor-grid-table th, .editor-grid-table td {
+    padding: 0.25rem !important;
+  }
+
+  .quick-stats-row {
+    grid-template-columns: 1fr !important;
+  }
+}
