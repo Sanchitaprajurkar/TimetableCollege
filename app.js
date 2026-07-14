@@ -217,10 +217,40 @@ function saveStateToLocalStorage() {
   // 2. Sync attendance logs for the current selectedDateString
   if (selectedDateString) {
     const dayLogs = state.logs[selectedDateString] || {};
-    firestoreDb.collection("users").doc(currentUser.uid).collection("attendance").doc(selectedDateString).set({
-      date: selectedDateString,
-      logs: dayLogs
-    }).catch(e => console.error("Error saving attendance to cloud:", e));
+    
+    // First, save all active session logs to Firestore
+    Object.keys(dayLogs).forEach(subjId => {
+      const statuses = dayLogs[subjId] || [];
+      statuses.forEach((status, idx) => {
+        const sessionIndex = idx + 1;
+        const docId = `${selectedDateString}_${subjId}_${sessionIndex}`;
+        firestoreDb.collection("users").doc(currentUser.uid).collection("attendance").doc(docId).set({
+          date: selectedDateString,
+          subjectId: subjId,
+          sessionIndex: sessionIndex,
+          status: status
+        }).catch(e => console.error("Error saving log doc:", e));
+      });
+    });
+    
+    // Then, find and delete any obsolete/orphaned session log documents for this date
+    firestoreDb.collection("users").doc(currentUser.uid).collection("attendance")
+      .where("date", "==", selectedDateString).get().then(snapshot => {
+        snapshot.forEach(doc => {
+          const logId = doc.id;
+          const parts = logId.split('_');
+          if (parts.length >= 3) {
+            const subjId = parts[1];
+            const sessionIndex = parseInt(parts[2], 10);
+            
+            const currentStatuses = dayLogs[subjId] || [];
+            if (!dayLogs[subjId] || sessionIndex > currentStatuses.length) {
+              firestoreDb.collection("users").doc(currentUser.uid).collection("attendance").doc(logId).delete()
+                .catch(e => console.error("Error deleting orphaned session:", e));
+            }
+          }
+        });
+      }).catch(e => console.error("Failed to query logs for deletion:", e));
   }
 
   // 3. Sync personal timetable
@@ -336,9 +366,21 @@ function initUserCloudSync(userId) {
     isSyncingFromCloud = true;
     state.logs = {};
     snapshot.forEach(doc => {
-      const data = doc.data();
-      if (data.date) {
-        state.logs[data.date] = data.logs || {};
+      const logEntry = doc.data();
+      const date = logEntry.date;
+      const subjId = logEntry.subjectId;
+      const status = logEntry.status;
+      const sessionIndex = logEntry.sessionIndex || 1;
+      
+      if (date && subjId) {
+        if (!state.logs[date]) {
+          state.logs[date] = {};
+        }
+        if (!state.logs[date][subjId]) {
+          state.logs[date][subjId] = [];
+        }
+        // Set the status at the correct index (0-based inside array)
+        state.logs[date][subjId][sessionIndex - 1] = status;
       }
     });
     normalizeState();
@@ -646,11 +688,11 @@ function openConfigModal() {
   if (state.subjects.length === 0) {
     // Start with 3 empty fields by default to make it easy
     for (let i = 0; i < 3; i++) {
-      renderSubjectEditRow('', 0, 0);
+      renderSubjectEditRow('', 0, 0, '');
     }
   } else {
     state.subjects.forEach(sub => {
-      renderSubjectEditRow(sub.name, sub.historicalPresent, sub.historicalTotal);
+      renderSubjectEditRow(sub.name, sub.historicalPresent, sub.historicalTotal, sub.id);
     });
   }
   openModal(modalConfig);
@@ -712,10 +754,10 @@ function closeModal(modal) {
 }
 
 // Append editable subject row inside configuration modal
-function renderSubjectEditRow(name = '', historicalPresent = 0, historicalTotal = 0) {
+function renderSubjectEditRow(name = '', historicalPresent = 0, historicalTotal = 0, subjectId = '') {
   const rowId = 'row-' + Math.random().toString(36).substr(2, 9);
   const rowHtml = `
-    <div class="subject-edit-row" id="${rowId}">
+    <div class="subject-edit-row" id="${rowId}" data-subj-id="${subjectId}">
       <div class="field-group">
         <span class="edit-row-label">Subject Name</span>
         <input type="text" class="input-text subj-name-input" placeholder="e.g. Mathematics" value="${escapeHtml(name)}">
@@ -744,6 +786,20 @@ function renderSubjectEditRow(name = '', historicalPresent = 0, historicalTotal 
   lucide.createIcons();
 }
 
+function generateSubjectId(name, existingSubjectsList) {
+  let base = name.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase();
+  base = base.replace(/[^A-Z0-9]/g, '');
+  if (!base) base = 'SUBJ';
+  
+  let id = base;
+  let counter = 1;
+  while (existingSubjectsList.some(s => s.id === id) || state.subjects.some(s => s.id === id)) {
+    id = `${base}_${counter}`;
+    counter++;
+  }
+  return id;
+}
+
 // Save config modal inputs
 function saveSubjectsConfig() {
   const rows = subjectEditorList.querySelectorAll('.subject-edit-row');
@@ -753,6 +809,7 @@ function saveSubjectsConfig() {
     const name = row.querySelector('.subj-name-input').value.trim();
     let present = parseInt(row.querySelector('.subj-present-input').value, 10);
     let total = parseInt(row.querySelector('.subj-total-input').value, 10);
+    const dbSubId = row.getAttribute('data-subj-id');
     
     if (!name) return;
 
@@ -760,8 +817,8 @@ function saveSubjectsConfig() {
     if (isNaN(total) || total < 0) total = 0;
     if (present > total) total = present;
 
-    const existing = state.subjects.find(s => s.name.toLowerCase() === name.toLowerCase());
-    const id = existing ? existing.id : `subj-${idx}-${Date.now()}`;
+    // Use existing ID if it matches this row, or generate a structured unique ID
+    const id = dbSubId || generateSubjectId(name, updatedSubjects);
 
     updatedSubjects.push({
       id: id,
@@ -1819,7 +1876,8 @@ function confirmTimetableImport() {
     const newTemplate = {
       id: templateId,
       name: tName,
-      schedule: tempParsedSchedule
+      schedule: tempParsedSchedule,
+      createdBy: currentUser ? currentUser.uid : 'anonymous'
     };
 
     if (firestoreDb) {
@@ -1832,9 +1890,11 @@ function confirmTimetableImport() {
   detectedSubjects.forEach(name => {
     const existing = state.subjects.find(s => s.name.toLowerCase() === name.toLowerCase());
     if (!existing) {
+      const formattedName = formatSubjectName(name);
+      const subjectId = generateSubjectId(formattedName, state.subjects);
       state.subjects.push({
-        id: `subj-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        name: formatSubjectName(name),
+        id: subjectId,
+        name: formattedName,
         historicalPresent: 0,
         historicalTotal: 0
       });
@@ -1891,7 +1951,9 @@ function importData(e) {
         if (typeof state.targetPercentage !== 'number') state.targetPercentage = 75;
 
         state.subjects.forEach(sub => {
-          if (!sub.id) sub.id = `subj-${Math.random().toString(36).substr(2, 9)}`;
+          if (!sub.id) {
+            sub.id = generateSubjectId(sub.name, state.subjects.filter(s => s !== sub));
+          }
           if (sub.present !== undefined && sub.historicalPresent === undefined) {
             sub.historicalPresent = sub.present;
             delete sub.present;
