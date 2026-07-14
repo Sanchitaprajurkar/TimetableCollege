@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AuraAttend | Premium Personal Attendance Tracker</title>
+  <meta name="description" content="A beautiful, interactive attendance tracker with smart predictive indicators, analytics, and data persistence.">
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- Styles -->
+  <link rel="stylesheet" href="style.css">
+  <!-- Tesseract.js for timetable OCR -->
+  <script src="https://unpkg.com/tesseract.js@5.0.1/dist/tesseract.min.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-logo">
+          <i data-lucide="calendar-check"></i>
+        </div>
+        <div class="brand-text">
+          <h1>AuraAttend</h1>
+          <p>Personal Attendance Analytics</p>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <nav class="tab-navigation">
+        <button id="tab-btn-dashboard" class="tab-btn active">
+          <i data-lucide="layout-dashboard"></i>
+          <span>Dashboard</span>
+        </button>
+        <button id="tab-btn-calendar" class="tab-btn">
+          <i data-lucide="calendar"></i>
+          <span>Calendar Log</span>
+        </button>
+        <button id="tab-btn-timetable-view" class="tab-btn">
+          <i data-lucide="table"></i>
+          <span>Weekly Timetable</span>
+        </button>
+      </nav>
+      
+      <div class="header-actions">
+        <button id="btn-timetable" class="btn btn-secondary" title="Import weekly timetable">
+          <i data-lucide="calendar-range"></i>
+          <span>Import Timetable</span>
+        </button>
+        <button id="btn-config" class="btn btn-secondary" title="Manage Subjects">
+          <i data-lucide="sliders"></i>
+          <span>Setup Subjects</span>
+        </button>
+        <button id="btn-backup" class="btn btn-icon-only" title="Import/Export Backup">
+          <i data-lucide="database"></i>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Views -->
+    <main class="app-views">
+      <!-- DASHBOARD VIEW -->
+      <div id="view-dashboard" class="tab-view active">
+        <div class="dashboard-grid">
+          <!-- Left Column: Analytics & Overview -->
+          <section class="analytics-panel">
+            <div class="glass-card main-stats">
+              <h2>Overall Progress</h2>
+              <div class="stats-circular-progress">
+                <svg class="progress-ring" width="160" height="160">
+                  <circle class="progress-ring__circle-bg" stroke="rgba(255, 255, 255, 0.05)" stroke-width="12" fill="transparent" r="70" cx="80" cy="80"/>
+                  <circle id="overall-progress-circle" class="progress-ring__circle" stroke="url(#progress-gradient)" stroke-width="12" stroke-dasharray="439.82" stroke-dashoffset="439.82" stroke-linecap="round" fill="transparent" r="70" cx="80" cy="80"/>
+                  <defs>
+                    <linearGradient id="progress-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stop-color="var(--accent-glow-start)" />
+                      <stop offset="100%" stop-color="var(--accent-glow-end)" />
+                    </linearGradient>
+                  </defs>
+                </svg>
+                <div class="progress-label">
+                  <span id="overall-percentage">0%</span>
+                  <span class="subtext">attended</span>
+                </div>
+              </div>
+              
+              <div class="overall-numerical-stats">
+                <div class="num-stat">
+                  <span id="overall-attended">0</span>
+                  <label>Present</label>
+                </div>
+                <div class="num-divider">/</div>
+                <div class="num-stat">
+                  <span id="overall-total">0</span>
+                  <label>Total Classes</label>
+                </div>
+              </div>
+            </div>
+
+            <div class="glass-card status-cards-grid">
+              <div class="status-card status-safe">
+                <div class="status-icon"><i data-lucide="shield-check"></i></div>
+                <div class="status-info">
+                  <span id="count-safe">0</span>
+                  <label>Safe Subjects</label>
+                </div>
+              </div>
+              <div class="status-card status-danger">
+                <div class="status-icon"><i data-lucide="alert-triangle"></i></div>
+                <div class="status-info">
+                  <span id="count-danger">0</span>
+                  <label>Shortage Alert</label>
+                </div>
+              </div>
+            </div>
+
+            <div class="glass-card quick-settings">
+              <h3>Target Attendance</h3>
+              <div class="target-slider-container">
+                <div class="slider-header">
+                  <span class="label">Minimum Threshold</span>
+                  <span id="target-value">75%</span>
+                </div>
+                <input type="range" id="target-range" min="50" max="95" value="75" step="5" class="slider">
+              </div>
+            </div>
+          </section>
+
+          <!-- Right Column: Subject Cards list -->
+          <section class="subjects-panel">
+            <!-- Dynamic quick action: Classes Scheduled Today -->
+            <div id="today-schedule-card" class="glass-card hidden" style="border-color: var(--accent-glow-start); box-shadow: 0 0 20px rgba(99, 102, 241, 0.08);">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1.25rem;">
+                <h3 style="font-family:var(--font-display); font-size:1.15rem; font-weight:700; display:flex; align-items:center; gap:0.5rem; color:#fff;">
+                  <i data-lucide="clock" style="color:var(--accent-glow-end); width:20px; height:20px;"></i>
+                  <span>Scheduled for Today</span>
+                </h3>
+                <span id="today-day-name" class="quick-info-badge" style="background: rgba(99,102,241,0.12); color:#a5b4fc; border-color: rgba(99,102,241,0.25);">Monday</span>
+              </div>
+              <div id="today-schedule-list" style="display:flex; flex-direction:column; gap:0.85rem;">
+                <!-- Dynamically injected active subjects logs for today -->
+              </div>
+            </div>
+
+            <div class="section-header">
+              <h2>Subject Trackers</h2>
+              <div class="quick-info-badge">
+                <span id="subjects-count">0</span> Subjects Tracked
+              </div>
+            </div>
+            
+            <!-- Empty State -->
+            <div id="empty-state" class="empty-state-card glass-card">
+              <div class="empty-icon"><i data-lucide="book-open"></i></div>
+              <h3>No Subjects Added</h3>
+              <p>Get started by uploading a timetable image or manually configuring your subjects!</p>
+              <button id="btn-empty-setup" class="btn btn-primary">
+                <i data-lucide="plus"></i> Add Subjects
+              </button>
+            </div>
+
+            <!-- Subject List Grid -->
+            <div id="subjects-grid" class="subjects-grid">
+              <!-- Dynamic cards injected via JS -->
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <!-- CALENDAR VIEW -->
+      <div id="view-calendar" class="tab-view hidden">
+        <div class="calendar-grid-layout">
+          <!-- Left side: Interactive Calendar -->
+          <section class="calendar-card glass-card">
+            <div class="calendar-nav">
+              <button id="btn-prev-month" class="btn btn-icon-only" title="Previous Month">
+                <i data-lucide="chevron-left"></i>
+              </button>
+              <h2 id="calendar-month-year">July 2026</h2>
+              <button id="btn-next-month" class="btn btn-icon-only" title="Next Month">
+                <i data-lucide="chevron-right"></i>
+              </button>
+            </div>
+            
+            <!-- Days of Week labels -->
+            <div class="calendar-weekdays">
+              <div>Sun</div>
+              <div>Mon</div>
+              <div>Tue</div>
+              <div>Wed</div>
+              <div>Thu</div>
+              <div>Fri</div>
+              <div>Sat</div>
+            </div>
+            
+            <!-- Days grid content -->
+            <div id="calendar-days" class="calendar-days">
+              <!-- Dynamic cells injected via JS -->
+            </div>
+          </section>
+
+          <!-- Right side: Log Panel for Selected Date -->
+          <section class="log-panel-card glass-card">
+            <div class="log-panel-header">
+              <div class="selected-date-badge">
+                <i data-lucide="calendar-days"></i>
+                <span id="log-selected-date-label">Select a Date</span>
+              </div>
+              <h3>Day Logs</h3>
+            </div>
+            
+            <!-- Form to edit logs for selected date -->
+            <div id="log-editor-container">
+              <p class="no-date-selected-text">Click any date on the calendar grid to configure or log attendance for that specific day.</p>
+              
+              <div id="log-subjects-list" class="log-subjects-list hidden">
+                <!-- Injected via JS per subject -->
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+      
+      <!-- WEEKLY TIMETABLE VIEW -->
+      <div id="view-timetable" class="tab-view hidden">
+        <div class="timetable-grid-layout glass-card" style="padding: 1.5rem;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1.5rem; flex-wrap:wrap; gap:1rem;">
+            <div>
+              <h2 style="font-family:var(--font-display); font-weight:700; font-size:1.5rem; color:#fff;">Weekly Timetable Schedule</h2>
+              <p class="subtext" style="margin-top:0.25rem;">View and manage your weekly day/slot schedule.</p>
+            </div>
+            <button id="btn-edit-timetable-grid" class="btn btn-primary">
+              <i data-lucide="edit-3"></i> Modify Timetable Slots
+            </button>
+          </div>
+          
+          <div class="timetable-scroller" style="overflow-x: auto; width: 100%;">
+            <table class="timetable-table" style="width:100%; border-collapse:collapse; min-width:600px; text-align:left;">
+              <thead>
+                <tr style="border-bottom:1.5px solid rgba(255,255,255,0.15);">
+                  <th style="padding:0.75rem; color:#fff; font-weight:600; width:120px;">Day</th>
+                  <th style="padding:0.75rem; color:#fff; font-weight:600;">Time / Day Slots</th>
+                </tr>
+              </thead>
+              <tbody id="timetable-slots-body">
+                <!-- Injected via JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Timetable Import Modal -->
+    <div id="modal-timetable" class="modal-overlay">
+      <div class="modal-card glass-card large animate-in">
+        <div class="modal-header">
+          <h3>Import Weekly Timetable</h3>
+          <button id="btn-close-timetable" class="btn-icon-only modal-close"><i data-lucide="x"></i></button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-desc">Upload a clean screenshot of your timetable (PNG, JPG) or paste raw schedule text. The browser-level parser will detect subjects and build your daily schedules.</p>
+          
+          <div id="timetable-input-methods">
+            <div id="timetable-upload-zone" class="upload-drop-zone">
+              <div class="upload-icon-container">
+                <i data-lucide="image-up"></i>
+              </div>
+              <p class="upload-title">Drag & drop your timetable image here</p>
+              <p class="upload-subtitle">Supports JPG, PNG (Max 5MB)</p>
+              <button class="btn btn-secondary mt-4" onclick="document.getElementById('timetable-file').click(); return false;">Browse Files</button>
+              <input type="file" id="timetable-file" accept="image/*" class="hidden">
+            </div>
+            
+            <div class="divider-text">
+              <span>OR PASTE TEXT SCHEDULE</span>
+            </div>
+            
+            <div class="field-group">
+              <textarea id="timetable-text-input" class="input-text" rows="5" placeholder="Format:&#10;Monday: Mathematics, Physics&#10;Tuesday: Chemistry, Biology, English&#10;Wednesday: Physics, Mathematics"></textarea>
+            </div>
+          </div>
+
+          <!-- OCR Processing Spinner -->
+          <div id="ocr-loader" class="ocr-loader hidden">
+            <div class="spinner"></div>
+            <p id="ocr-loader-text">Downloading OCR engine and parsing image...</p>
+            <p class="ocr-loader-sub">This may take up to 20 seconds on first load.</p>
+          </div>
+
+          <!-- Parsed Schedule Preview Editor -->
+          <div id="timetable-preview" class="timetable-preview hidden">
+            <h4>Verify Extracted Weekly Schedule</h4>
+            <p class="subtext mb-4">Edit the parsed subjects scheduled for each day of the week before saving.</p>
+            
+            <div class="weekday-grid-editor" id="weekday-grid-editor">
+              <!-- Grid elements for Mon-Fri will be generated dynamically -->
+            </div>
+          </div>
+        </div>
+        
+        <div class="modal-footer">
+          <button id="btn-cancel-timetable" class="btn btn-secondary">Cancel</button>
+          <button id="btn-parse-text" class="btn btn-primary">Parse Timetable</button>
+          <button id="btn-confirm-timetable" class="btn btn-success hidden">Confirm & Import</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Backup Modal -->
+    <div id="modal-backup" class="modal-overlay">
+      <div class="modal-card glass-card animate-in">
+        <div class="modal-header">
+          <h3>Backup & Restore Data</h3>
+          <button id="btn-close-backup" class="btn-icon-only modal-close"><i data-lucide="x"></i></button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-desc">Export your current attendance logs to a file to back it up, or import a previously saved data backup.</p>
+          
+          <div class="backup-actions">
+            <button id="btn-export" class="btn btn-secondary w-full">
+              <i data-lucide="download"></i> Export Data Backup (JSON)
+            </button>
+            
+            <div class="import-zone">
+              <label for="import-file" class="btn btn-primary w-full cursor-pointer">
+                <i data-lucide="upload"></i> Select Backup File to Import
+              </label>
+              <input type="file" id="import-file" accept=".json" class="hidden">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Configuration Modal -->
+    <div id="modal-config" class="modal-overlay">
+      <div class="modal-card glass-card large animate-in">
+        <div class="modal-header">
+          <h3>Configure Subjects</h3>
+          <button id="btn-close-config" class="btn-icon-only modal-close"><i data-lucide="x"></i></button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-desc">Set up your subjects. Modify the historical counts if you have already attended classes before starting logs in this calendar.</p>
+          
+          <div class="subject-editor-list" id="subject-editor-list">
+            <!-- Dynamic rows of subject editing injected via JS -->
+          </div>
+
+          <button id="btn-add-subject-row" class="btn btn-secondary btn-dashed w-full mt-4">
+            <i data-lucide="plus"></i> Add New Subject
+          </button>
+        </div>
+        <div class="modal-footer">
+          <button id="btn-cancel-config" class="btn btn-secondary">Cancel</button>
+          <button id="btn-save-config" class="btn btn-primary">Save Changes</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="app.js"></script>
+</body>
+</html>
