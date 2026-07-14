@@ -283,9 +283,24 @@
           <button id="btn-close-timetable" class="btn-icon-only modal-close"><i data-lucide="x"></i></button>
         </div>
         <div class="modal-body">
-          <p class="modal-desc">Upload a clean screenshot of your timetable (PNG, JPG) or paste raw schedule text. The browser-level parser will detect subjects and build your daily schedules.</p>
+          <p class="modal-desc">Upload a clean screenshot of your timetable (PNG, JPG), paste raw schedule text, or select a shared template. The browser-level parser will detect subjects and build your daily schedules.</p>
           
           <div id="timetable-input-methods">
+            <!-- Shared Templates Dropdown -->
+            <div id="shared-templates-section" class="field-group hidden" style="margin-bottom: 1.5rem; padding: 1rem; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.08); border-radius: var(--radius-sm);">
+              <h4 style="font-size: 0.85rem; font-weight:600; color:#fff; margin-bottom:0.5rem; display:flex; align-items:center; gap:0.35rem; font-family:var(--font-display);">
+                <i data-lucide="folder-heart" style="width:16px; height:16px; color:var(--accent-glow-end);"></i>
+                <span>Use a Shared Timetable Template</span>
+              </h4>
+              <p class="subtext" style="font-size: 0.75rem; margin-bottom:0.75rem;">Select a pre-configured timetable template saved by other students.</p>
+              <div style="display:flex; gap:0.5rem;">
+                <select id="select-shared-template" class="input-text" style="flex:1; background:rgba(20,22,36,0.9); height:38px; cursor:pointer; font-size:0.8rem; font-family:var(--font-sans);">
+                  <option value="">-- Choose a Saved Template --</option>
+                </select>
+                <button id="btn-load-template" class="btn btn-primary" style="height:38px; padding:0 1rem; font-size:0.8rem;">Load</button>
+              </div>
+            </div>
+
             <div id="timetable-upload-zone" class="upload-drop-zone">
               <div class="upload-icon-container">
                 <i data-lucide="image-up"></i>
@@ -319,6 +334,15 @@
             
             <div class="weekday-grid-editor" id="weekday-grid-editor">
               <!-- Grid elements for Mon-Fri will be generated dynamically -->
+            </div>
+
+            <!-- Save as Shared Template Option -->
+            <div class="field-group mt-4" style="display:flex; align-items:center; gap:0.5rem; padding: 0.75rem; background:rgba(99,102,241,0.06); border: 1px solid rgba(99,102,241,0.15); border-radius: var(--radius-sm); flex-wrap: wrap;">
+              <input type="checkbox" id="chk-save-template" style="width:16px; height:16px; cursor:pointer;">
+              <label for="chk-save-template" style="font-size:0.8rem; font-weight:500; cursor:pointer; color:#fff; display:flex; align-items:center; gap:0.35rem;">
+                Save this timetable as a shared template for other profiles
+              </label>
+              <input type="text" id="txt-template-name" class="input-text hidden" placeholder="e.g. CSE 3rd Year Sec A" style="height:32px; width:220px; padding:0 0.5rem; font-size:0.75rem; margin-left:auto;">
             </div>
           </div>
         </div>

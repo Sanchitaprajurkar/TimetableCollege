@@ -100,6 +100,13 @@ const btnParseText = document.getElementById('btn-parse-text');
 const btnConfirmTimetable = document.getElementById('btn-confirm-timetable');
 const timetableInputMethods = document.getElementById('timetable-input-methods');
 
+// Shared Timetable elements
+const sharedTemplatesSection = document.getElementById('shared-templates-section');
+const selectSharedTemplate = document.getElementById('select-shared-template');
+const btnLoadTemplate = document.getElementById('btn-load-template');
+const chkSaveTemplate = document.getElementById('chk-save-template');
+const txtTemplateName = document.getElementById('txt-template-name');
+
 // Backup actions
 const btnExport = document.getElementById('btn-export');
 const fileImport = document.getElementById('import-file');
@@ -385,6 +392,40 @@ function setupEventListeners() {
   // Confirm extracted schedule
   btnConfirmTimetable.addEventListener('click', confirmTimetableImport);
 
+  // Toggle template name input when chkSaveTemplate is changed
+  chkSaveTemplate.addEventListener('change', () => {
+    if (chkSaveTemplate.checked) {
+      txtTemplateName.classList.remove('hidden');
+      txtTemplateName.focus();
+    } else {
+      txtTemplateName.classList.add('hidden');
+    }
+  });
+
+  // Load shared template trigger
+  btnLoadTemplate.addEventListener('click', () => {
+    const templateId = selectSharedTemplate.value;
+    if (!templateId) {
+      alert("Please select a template to load!");
+      return;
+    }
+    const stored = localStorage.getItem('aura_attend_shared_timetables');
+    if (stored) {
+      try {
+        const templates = JSON.parse(stored);
+        const selected = templates.find(t => t.id === templateId);
+        if (selected) {
+          // Load schedule into tempParsedSchedule
+          tempParsedSchedule = JSON.parse(JSON.stringify(selected.schedule));
+          renderTimetablePreviewEditor();
+          alert(`Loaded template "${selected.name}"! Feel free to edit slots or click 'Confirm & Import' to save.`);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  });
+
   // Backup & Import buttons
   btnExport.addEventListener('click', exportData);
   fileImport.addEventListener('change', importData);
@@ -486,6 +527,11 @@ function openConfigModal() {
 function openTimetableModal(editMode = false) {
   timetableTextInput.value = '';
   timetableFileInput.value = '';
+  chkSaveTemplate.checked = false;
+  txtTemplateName.value = '';
+  txtTemplateName.classList.add('hidden');
+  
+  renderSharedTemplatesList();
   
   if (editMode && state.schedule && Object.keys(state.schedule).length > 0) {
     // Deep copy current schedule
@@ -506,6 +552,32 @@ function openTimetableModal(editMode = false) {
   }
   
   openModal(modalTimetable);
+}
+
+function renderSharedTemplatesList() {
+  const stored = localStorage.getItem('aura_attend_shared_timetables');
+  let templates = [];
+  if (stored) {
+    try {
+      templates = JSON.parse(stored);
+    } catch(e) {
+      console.error(e);
+    }
+  }
+  
+  selectSharedTemplate.innerHTML = '<option value="">-- Choose a Saved Template --</option>';
+  
+  if (templates.length === 0) {
+    sharedTemplatesSection.classList.add('hidden');
+  } else {
+    sharedTemplatesSection.classList.remove('hidden');
+    templates.forEach(t => {
+      const option = document.createElement('option');
+      option.value = t.id;
+      option.textContent = t.name;
+      selectSharedTemplate.appendChild(option);
+    });
+  }
 }
 
 function openModal(modal) {
@@ -1611,6 +1683,38 @@ function confirmTimetableImport() {
   if (detectedSubjects.length === 0) {
     alert("No subjects detected in schedule. Please add some first!");
     return;
+  }
+
+  // Handle saving as shared template
+  if (chkSaveTemplate.checked) {
+    const tName = txtTemplateName.value.trim();
+    if (!tName) {
+      alert("Please provide a name for your shared timetable template!");
+      return;
+    }
+    const templateId = 'temp-' + Date.now();
+    const stored = localStorage.getItem('aura_attend_shared_timetables');
+    let templates = [];
+    if (stored) {
+      try {
+        templates = JSON.parse(stored);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    // Overwrite alert if name duplicates
+    if (templates.some(t => t.name.toLowerCase() === tName.toLowerCase())) {
+      if (!confirm(`A template named "${tName}" already exists. Do you want to overwrite it?`)) {
+        return;
+      }
+      templates = templates.filter(t => t.name.toLowerCase() !== tName.toLowerCase());
+    }
+    templates.push({
+      id: templateId,
+      name: tName,
+      schedule: tempParsedSchedule
+    });
+    localStorage.setItem('aura_attend_shared_timetables', JSON.stringify(templates));
   }
 
   // Merge subjects list
